@@ -114,15 +114,17 @@ class HighPassFilter(object):
                                   [-1, -1, -1]]).float()
 
         # Normalize the kernel
-        hp_kernel /= hp_kernel.sum()
+        hp_kernel = hp_kernel / hp_kernel.sum()
 
-        # Add channel dimension and repeat for each image channel
+        # Add channel dimension so the kernel works with 3-channel images
         hp_kernel = hp_kernel.unsqueeze(0).unsqueeze(0)
+
+        # Repeat kernel for each channel
         hp_kernel = hp_kernel.repeat(image.shape[0], 1, 1, 1)
 
         # Apply the high pass filter
         hp_image = torch.nn.functional.conv2d(
-            image.unsqueeze(0), hp_kernel, padding=1).squeeze(0)
+            image.unsqueeze(0), hp_kernel, padding=1, groups=image.shape[0]).squeeze(0)
 
         # Combine the original image and high pass filtered image
         filtered_image = (1 - alpha) * image + alpha * hp_image
