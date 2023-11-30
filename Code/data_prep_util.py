@@ -1,6 +1,7 @@
 import os
 from os import listdir
 from os.path import isfile, join
+import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -97,36 +98,14 @@ class HighPassFilter(object):
         filtered_image = self.high_pass_filter(image, self.alpha)
         return {**sample, 'image': filtered_image}
 
-    def high_pass_filter(self, image, alpha):
-        """
-        Apply a high pass filter to the image.
-
-        Args:
-            image (Tensor): Image tensor of shape [C, H, W].
-            alpha (float): Strength of the high pass filter.
-
-        Returns:
-            Tensor: High pass filtered image.
-        """
-        # Define a simple high-pass filter kernel
-        hp_kernel = torch.tensor([[-1, -1, -1],
-                                  [-1, 8, -1],
-                                  [-1, -1, -1]]).float()
-
-        # Normalize the kernel
-        hp_kernel = hp_kernel / hp_kernel.sum()
-
-        # Add channel dimension so the kernel works with 3-channel images
-        hp_kernel = hp_kernel.unsqueeze(0).unsqueeze(0)
-
-        # Repeat kernel for each channel
-        hp_kernel = hp_kernel.repeat(image.shape[0], 1, 1, 1)
-
-        # Apply the high pass filter
-        hp_image = torch.nn.functional.conv2d(
-            image.unsqueeze(0), hp_kernel, padding=1, groups=image.shape[0]).squeeze(0)
-
-        # Combine the original image and high pass filtered image
-        filtered_image = (1 - alpha) * image + alpha * hp_image
-
-        return filtered_image
+    def high_pass_filter_opencv(image, kernel_size=3):
+        # Create a kernel that sums to 1 for low pass filtering
+        kernel = np.ones((kernel_size, kernel_size),
+                         np.float32) / (kernel_size ** 2)
+        # Create a high-pass filter kernel from the low-pass kernel
+        kernel = -kernel
+        kernel[(kernel_size - 1)//2, (kernel_size - 1) //
+               2] = 1 + (-1 * kernel.sum())
+        # Filter the image
+        high_pass_filtered_image = cv2.filter2D(image, -1, kernel)
+        return high_pass_filtered_image
