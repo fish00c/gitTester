@@ -8,6 +8,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 from torchvision.io import read_image
 from skimage import io, transform
+import datetime
 
 
 class GenImageDataset(Dataset):
@@ -109,3 +110,74 @@ class HighPassFilter(object):
         # Filter the image
         high_pass_filtered_image = cv2.filter2D(image, -1, kernel)
         return high_pass_filtered_image
+
+class State:
+  def __init__(
+        self, 
+        model_state_dict,
+        epoch,
+        trainloader, 
+        testloader, 
+        train_loss_history,
+        train_acc_history,
+        val_loss_history,
+        val_acc_history,
+        criterion_state_dict,
+        optimizer_state_dict,
+        scaler_state_dict,
+    ):
+        self.model_state_dict = model_state_dict
+        self.epoch = epoch
+        self.trainloader = trainloader
+        self.testloader = testloader
+        self.train_loss_history = train_loss_history
+        self.train_acc_history = train_acc_history
+        self.val_loss_history = val_loss_history
+        self.val_acc_history = val_acc_history
+        self.criterion_state_dict = criterion_state_dict
+        self.optimizer_state_dict = optimizer_state_dict
+        self.scaler_state_dict = scaler_state_dict
+
+class CheckPoint(object):
+    def save_checkpoint(state, dir=''):
+        state_hash = {
+            'model_state_dict': state.model_state_dict,
+            'epoch': state.epoch,
+            'trainloader': state.trainloader, 
+            'testloader': state.testloader, 
+            'train_loss_history': state.train_loss_history,
+            'train_acc_history': state.train_acc_history,
+            'val_loss_history': state.val_loss_history,
+            'val_acc_history': state.val_acc_history,
+            'criterion_state_dict': state.criterion_state_dict,
+            'optimizer_state_dict': state.optimizer_state_dict,
+            'scaler_state_dict': state.scaler_state_dict
+        }
+        filepath = dir+'latest.pth'
+        torch.save(state_hash, filepath)
+        print('Saved checkpoint to ' + filepath)
+        filepath = dir+f"epoch{state_hash['epoch']}-{datetime.datetime.now():%Y-%m-%d_%H-%M-%S}.pth"
+        torch.save(state_hash, filepath)
+        print('Saved checkpoint to ' + filepath)
+    
+    def load_checkpoint(path=''):
+        if path=='':
+            path = 'latest.pth'
+
+        if not isfile(path):
+            return None
+        state = torch.load(path)
+
+        return State(
+            model_state_dict = state['model_state_dict'],
+            epoch = state['epoch'],
+            trainloader = state['trainloader'],
+            testloader = state['testloader'],
+            train_loss_history = state['train_loss_history'],
+            train_acc_history = state['train_acc_history'],
+            val_loss_history = state['val_loss_history'],
+            val_acc_history = state['val_acc_history'],
+            criterion_state_dict = state['criterion_state_dict'],
+            optimizer_state_dict = state['optimizer_state_dict'],
+            scaler_state_dict = state['scaler_state_dict'],
+        )
