@@ -9,12 +9,56 @@ from torchvision import transforms, utils
 from torchvision.io import read_image
 from skimage import io, transform
 import datetime
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+import torchvision.transforms as T
+from PIL import Image
 
+def random_image(output_path='test.png'):
+  # define a torch tensor
+  tensor = torch.rand(3,300,700)
+
+  # define a transform to convert a tensor to PIL image
+  transform = T.ToPILImage()
+
+  # convert the tensor to PIL image using above transform
+  img = transform(tensor)
+
+  # display the PIL image
+  img.show()
+
+  img.save(output_path)
+
+
+def show_image(image_path):
+  plt.figure()
+  img = mpimg.imread(image_path)
+  imgplot = plt.imshow(img)
+  plt.axis("off")
+  plt.show()
+
+def show_torch_tensor_as_image(tensor_path):
+  # Read tensor
+  image_tensor = torch.load(tensor_path)
+  
+  # Convert tensor to PIL Image
+  image_pil = T.functional.to_pil_image(image_tensor)
+
+  # Display the image
+  plt.imshow(image_pil)
+  plt.axis('off')  # Hide axes
+  plt.show()
+
+def show_image_from_dataloader(image_dataloader):
+  plt.figure()
+  imgplot = plt.imshow(image_dataloader.permute(1, 2, 0))
+  plt.axis("off")
+  plt.show()
 
 class GenImageDataset(Dataset):
     """GenImage dataset."""
 
-    def __init__(self, root_dir, dataset_type, model_type, transform=None, use_high_pass_filter=False, alpha_value=0.25):
+    def __init__(self, root_dir, dataset_type, model_type, transform=None, use_high_pass_filter=False, alpha_value=0.25,input_type='Tensor'):
         """
         Args:
             root_dir (string): Directory with all the images.
@@ -23,6 +67,7 @@ class GenImageDataset(Dataset):
             transform (callable, optional): Optional transform to be applied on a sample.
             use_high_pass_filter (bool): Flag to apply high pass filter.
             alpha_value (float): Parameter for the high pass filter effect.
+            input_type (string): Type of input ('Image','Tensor')
         """
         self.root_dir = root_dir
         self.dataset_type = dataset_type
@@ -30,6 +75,7 @@ class GenImageDataset(Dataset):
         self.transform = transform
         self.use_high_pass_filter = use_high_pass_filter
         self.alpha_value = alpha_value
+        self.input_type = input_type
 
         self.image_names = os.listdir(os.path.join(
             self.root_dir, self.dataset_type, self.model_type))
@@ -46,7 +92,12 @@ class GenImageDataset(Dataset):
 
         # Handle broken images
         if os.path.exists(image_name) and os.path.getsize(image_name) > 0:
-            image = read_image(image_name)
+          if self.input_type == 'Tensor':
+            image = torch.load(image_name)
+          elif self.input_type =='Image':
+             image = read_image(image_name)
+          else:
+            print('Input type is not supported')  
         else:
             image = torch.zeros((3, 256, 256))
 
@@ -181,3 +232,71 @@ class CheckPoint(object):
             optimizer_state_dict = state['optimizer_state_dict'],
             scaler_state_dict = state['scaler_state_dict'],
         )
+
+
+class data_pre_process():
+  ### use to process the image before dataloader 
+
+  def __init__(self,root_dir,dataset_type,model_type,output_root):
+      self.root_dir = root_dir
+      self.dataset_type = dataset_type
+      self.model_type = model_type
+
+      self.output_root = output_root
+
+      self.image_name_list = os.listdir(os.path.join(self.root_dir, self.dataset_type, self.model_type))
+
+
+      # create output folder
+      output_file = os.path.join(self.output_root, self.dataset_type, self.model_type)
+
+      if not os.path.exists(output_file):
+        # If it doesn't exist, create it
+        os.makedirs(output_file)
+
+  def resize_image_in_folder(self,output_size):
+      num_broken_image = 0
+      n= 0
+      for i in range(len(self.image_name_list)):
+
+        image_name = os.path.join(self.root_dir, self.dataset_type, self.model_type,self.image_name_list[i])
+
+        # handle broken images
+        if os.path.exists(image_name) and os.path.getsize(image_name) > 0 and (
+            ('png') in image_name or
+          ('PNG') in image_name or
+          ('jpg') in image_name or
+          ('JPEG') in image_name ):
+          image = read_image(image_name)
+
+                  # handle images without 3 layers
+          if image.shape[0] == 1:
+              image = torch.cat((image,image,image),0)
+
+          if image.shape[0] == 4:
+              image = image[:3]
+
+          # resize images
+          image = transforms.Resize([output_size,output_size],antialias=True)(image)
+
+          # save as a tensor
+          output_file = os.path.join(self.output_root, self.dataset_type, self.model_type,self.image_name_list[i].split('.')[0]+'.pt')
+          torch.save(image, output_file)
+
+          n=n+1
+
+        else:
+          image = torch.zeros((3,output_size,output_size))
+          num_broken_image = num_broken_image+1
+          print('Broken Images: ',image_name)
+
+          if (('png') in image_name and ('PNG') in image_name or ('jpg') in image_name or ("JPEG ") in image_name )==False:
+            print('Reason of Broken Images: Type')
+          elif os.path.exists(image_name)== False:
+            print('Reason of Broken Images: Empty File')
+          elif os.path.getsize(image_name) > 0 == False:
+            print('Reason of Broken Images: Empty File')
+
+
+      print('Resized ',n,'images')
+      print(num_broken_image,'images are broken')
