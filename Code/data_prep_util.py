@@ -1,7 +1,6 @@
 import os
 from os import listdir
 from os.path import isfile, join
-import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -162,31 +161,6 @@ class HighPassConvLayer(nn.Module):
     def forward(self, x):
         # Apply the high-pass filter
         return self.conv(x)
-
-# class HighPassFilter(object):
-#     def __init__(self, alpha=0.25):
-#         """
-#         Args:
-#             alpha (float): Strength of the high pass filter.
-#         """
-#         self.alpha = alpha
-
-#     def __call__(self, sample):
-#         image = sample['image']
-#         filtered_image = self.high_pass_filter(image, self.alpha)
-#         return {**sample, 'image': filtered_image}
-
-#     def high_pass_filter_opencv(image, kernel_size=3):
-#         # Create a kernel that sums to 1 for low pass filtering
-#         kernel = np.ones((kernel_size, kernel_size),
-#                          np.float32) / (kernel_size ** 2)
-#         # Create a high-pass filter kernel from the low-pass kernel
-#         kernel = -kernel
-#         kernel[(kernel_size - 1)//2, (kernel_size - 1) //
-#                2] = 1 + (-1 * kernel.sum())
-#         # Filter the image
-#         high_pass_filtered_image = cv2.filter2D(image, -1, kernel)
-#         return high_pass_filtered_image
 
 
 class State:
