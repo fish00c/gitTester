@@ -78,8 +78,6 @@ class GenImageDataset(Dataset):
         self.dataset_type = dataset_type
         self.model_type = model_type
         self.transform = transform
-        # self.use_high_pass_filter = use_high_pass_filter
-        # self.alpha_value = alpha_value
         self.input_type = input_type
 
         self.image_names = os.listdir(os.path.join(
@@ -111,10 +109,6 @@ class GenImageDataset(Dataset):
             image = torch.cat((image, image, image), 0)
         if image.shape[0] == 4:
             image = image[:3]
-
-        # Apply high pass filter if enabled
-        if self.use_high_pass_filter:
-            image = high_pass_filter(image, self.alpha_value)
 
         model_type_num = 1 if self.model_type == 'ai' else 0
 
