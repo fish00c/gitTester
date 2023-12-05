@@ -139,10 +139,13 @@ class Rescale(object):
 class HighPassConvLayer(nn.Module):
     def __init__(self, kernel_size=3, channels=3):
         super(HighPassConvLayer, self).__init__()
-        # Define a 3x3 high-pass filter kernel
-        kernel = torch.tensor([[-1.0, -1.0, -1.0],
-                               [-1.0,  8.0, -1.0],
-                               [-1.0, -1.0, -1.0]])
+        # Define a softened 3x3 high-pass filter kernel
+        kernel = torch.tensor([[-0.5, -0.5, -0.5],
+                               [-0.5,  4.0, -0.5],
+                               [-0.5, -0.5, -0.5]])
+
+        # Normalize the kernel so the sum of elements is 0
+        kernel -= kernel.mean()
 
         # Repeat the kernel for each input channel
         kernel = kernel.repeat(channels, 1, 1, 1)
@@ -154,7 +157,14 @@ class HighPassConvLayer(nn.Module):
 
     def forward(self, x):
         # Apply the high-pass filter
-        return self.conv(x)
+        filtered_x = self.conv(x)
+
+        # Optionally, normalize or scale the output here
+        # For example, scale to 0-1 range if using float tensors
+        filtered_x = (filtered_x - filtered_x.min()) / \
+            (filtered_x.max() - filtered_x.min())
+
+        return filtered_x
 
 
 class State:
