@@ -1,12 +1,13 @@
 import os
 from os import listdir
 from os.path import isfile, join
-import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 from torchvision.io import read_image
+import torch.nn as nn
+import torch.nn.functional as F
 from skimage import io, transform
 import datetime
 import matplotlib.pyplot as plt
@@ -14,51 +15,55 @@ import matplotlib.image as mpimg
 import torchvision.transforms as T
 from PIL import Image
 
+
 def random_image(output_path='test.png'):
-  # define a torch tensor
-  tensor = torch.rand(3,300,700)
+    # define a torch tensor
+    tensor = torch.rand(3, 300, 700)
 
-  # define a transform to convert a tensor to PIL image
-  transform = T.ToPILImage()
+    # define a transform to convert a tensor to PIL image
+    transform = T.ToPILImage()
 
-  # convert the tensor to PIL image using above transform
-  img = transform(tensor)
+    # convert the tensor to PIL image using above transform
+    img = transform(tensor)
 
-  # display the PIL image
-  img.show()
+    # display the PIL image
+    img.show()
 
-  img.save(output_path)
+    img.save(output_path)
 
 
 def show_image(image_path):
-  plt.figure()
-  img = mpimg.imread(image_path)
-  imgplot = plt.imshow(img)
-  plt.axis("off")
-  plt.show()
+    plt.figure()
+    img = mpimg.imread(image_path)
+    imgplot = plt.imshow(img)
+    plt.axis("off")
+    plt.show()
+
 
 def show_torch_tensor_as_image(tensor_path):
-  # Read tensor
-  image_tensor = torch.load(tensor_path)
-  
-  # Convert tensor to PIL Image
-  image_pil = T.functional.to_pil_image(image_tensor)
+    # Read tensor
+    image_tensor = torch.load(tensor_path)
 
-  # Display the image
-  plt.imshow(image_pil)
-  plt.axis('off')  # Hide axes
-  plt.show()
+    # Convert tensor to PIL Image
+    image_pil = T.functional.to_pil_image(image_tensor)
+
+    # Display the image
+    plt.imshow(image_pil)
+    plt.axis('off')  # Hide axes
+    plt.show()
+
 
 def show_image_from_dataloader(image_dataloader):
-  plt.figure()
-  imgplot = plt.imshow(image_dataloader.permute(1, 2, 0))
-  plt.axis("off")
-  plt.show()
+    plt.figure()
+    imgplot = plt.imshow(image_dataloader.permute(1, 2, 0))
+    plt.axis("off")
+    plt.show()
+
 
 class GenImageDataset(Dataset):
     """GenImage dataset."""
 
-    def __init__(self, root_dir, dataset_type, model_type, transform=None, use_high_pass_filter=False, alpha_value=0.25,input_type='Tensor'):
+    def __init__(self, root_dir, dataset_type, model_type, transform=None, input_type='Tensor'):
         """
         Args:
             root_dir (string): Directory with all the images.
@@ -73,8 +78,6 @@ class GenImageDataset(Dataset):
         self.dataset_type = dataset_type
         self.model_type = model_type
         self.transform = transform
-        self.use_high_pass_filter = use_high_pass_filter
-        self.alpha_value = alpha_value
         self.input_type = input_type
 
         self.image_names = os.listdir(os.path.join(
@@ -92,12 +95,12 @@ class GenImageDataset(Dataset):
 
         # Handle broken images
         if os.path.exists(image_name) and os.path.getsize(image_name) > 0:
-          if self.input_type == 'Tensor':
-            image = torch.load(image_name)
-          elif self.input_type =='Image':
-             image = read_image(image_name)
-          else:
-            print('Input type is not supported')  
+            if self.input_type == 'Tensor':
+                image = torch.load(image_name)
+            elif self.input_type == 'Image':
+                image = read_image(image_name)
+            else:
+                print('Input type is not supported')
         else:
             image = torch.zeros((3, 256, 256))
 
@@ -106,10 +109,6 @@ class GenImageDataset(Dataset):
             image = torch.cat((image, image, image), 0)
         if image.shape[0] == 4:
             image = image[:3]
-
-        # Apply high pass filter if enabled
-        if self.use_high_pass_filter:
-            image = high_pass_filter(image, self.alpha_value)
 
         model_type_num = 1 if self.model_type == 'ai' else 0
 
@@ -137,38 +136,34 @@ class Rescale(object):
         return {'image': image, 'model_type': sample['model_type'], 'dataset_type': sample['dataset_type'], 'image_name': sample['image_name']}
 
 
-class HighPassFilter(object):
-    def __init__(self, alpha=0.25):
-        """
-        Args:
-            alpha (float): Strength of the high pass filter.
-        """
-        self.alpha = alpha
+class HighPassConvLayer(nn.Module):
+    def __init__(self, kernel_size=3, channels=3):
+        super(HighPassConvLayer, self).__init__()
+        # Define a 3x3 high-pass filter kernel
+        kernel = torch.tensor([[-1.0, -1.0, -1.0],
+                               [-1.0,  8.0, -1.0],
+                               [-1.0, -1.0, -1.0]])
 
-    def __call__(self, sample):
-        image = sample['image']
-        filtered_image = self.high_pass_filter(image, self.alpha)
-        return {**sample, 'image': filtered_image}
+        # Repeat the kernel for each input channel
+        kernel = kernel.repeat(channels, 1, 1, 1)
 
-    def high_pass_filter_opencv(image, kernel_size=3):
-        # Create a kernel that sums to 1 for low pass filtering
-        kernel = np.ones((kernel_size, kernel_size),
-                         np.float32) / (kernel_size ** 2)
-        # Create a high-pass filter kernel from the low-pass kernel
-        kernel = -kernel
-        kernel[(kernel_size - 1)//2, (kernel_size - 1) //
-               2] = 1 + (-1 * kernel.sum())
-        # Filter the image
-        high_pass_filtered_image = cv2.filter2D(image, -1, kernel)
-        return high_pass_filtered_image
+        # Create a convolutional layer with the high-pass filter, without gradient
+        self.conv = nn.Conv2d(
+            channels, channels, kernel_size=kernel_size, groups=channels, padding=1, bias=False)
+        self.conv.weight = nn.Parameter(kernel, requires_grad=False)
+
+    def forward(self, x):
+        # Apply the high-pass filter
+        return self.conv(x)
+
 
 class State:
-  def __init__(
-        self, 
+    def __init__(
+        self,
         model_state_dict,
         epoch,
-        trainloader, 
-        testloader, 
+        trainloader,
+        testloader,
         train_loss_history,
         train_acc_history,
         val_loss_history,
@@ -189,13 +184,14 @@ class State:
         self.optimizer_state_dict = optimizer_state_dict
         self.scaler_state_dict = scaler_state_dict
 
+
 class CheckPoint(object):
     def save_checkpoint(state, dir=''):
         state_hash = {
             'model_state_dict': state.model_state_dict,
             'epoch': state.epoch,
-            'trainloader': state.trainloader, 
-            'testloader': state.testloader, 
+            'trainloader': state.trainloader,
+            'testloader': state.testloader,
             'train_loss_history': state.train_loss_history,
             'train_acc_history': state.train_acc_history,
             'val_loss_history': state.val_loss_history,
@@ -207,12 +203,13 @@ class CheckPoint(object):
         filepath = dir+'latest.pth'
         torch.save(state_hash, filepath)
         print('Saved checkpoint to ' + filepath)
-        filepath = dir+f"epoch{state_hash['epoch']}-{datetime.datetime.now():%Y-%m-%d_%H-%M-%S}.pth"
+        filepath = dir + \
+            f"epoch{state_hash['epoch']}-{datetime.datetime.now():%Y-%m-%d_%H-%M-%S}.pth"
         torch.save(state_hash, filepath)
         print('Saved checkpoint to ' + filepath)
-    
+
     def load_checkpoint(path=''):
-        if path=='':
+        if path == '':
             path = 'latest.pth'
 
         if not isfile(path):
@@ -220,83 +217,86 @@ class CheckPoint(object):
         state = torch.load(path)
 
         return State(
-            model_state_dict = state['model_state_dict'],
-            epoch = state['epoch'],
-            trainloader = state['trainloader'],
-            testloader = state['testloader'],
-            train_loss_history = state['train_loss_history'],
-            train_acc_history = state['train_acc_history'],
-            val_loss_history = state['val_loss_history'],
-            val_acc_history = state['val_acc_history'],
-            criterion_state_dict = state['criterion_state_dict'],
-            optimizer_state_dict = state['optimizer_state_dict'],
-            scaler_state_dict = state['scaler_state_dict'],
+            model_state_dict=state['model_state_dict'],
+            epoch=state['epoch'],
+            trainloader=state['trainloader'],
+            testloader=state['testloader'],
+            train_loss_history=state['train_loss_history'],
+            train_acc_history=state['train_acc_history'],
+            val_loss_history=state['val_loss_history'],
+            val_acc_history=state['val_acc_history'],
+            criterion_state_dict=state['criterion_state_dict'],
+            optimizer_state_dict=state['optimizer_state_dict'],
+            scaler_state_dict=state['scaler_state_dict'],
         )
 
 
 class data_pre_process():
-  ### use to process the image before dataloader 
+    # use to process the image before dataloader
 
-  def __init__(self,root_dir,dataset_type,model_type,output_root):
-      self.root_dir = root_dir
-      self.dataset_type = dataset_type
-      self.model_type = model_type
+    def __init__(self, root_dir, dataset_type, model_type, output_root):
+        self.root_dir = root_dir
+        self.dataset_type = dataset_type
+        self.model_type = model_type
 
-      self.output_root = output_root
+        self.output_root = output_root
 
-      self.image_name_list = os.listdir(os.path.join(self.root_dir, self.dataset_type, self.model_type))
+        self.image_name_list = os.listdir(os.path.join(
+            self.root_dir, self.dataset_type, self.model_type))
 
+        # create output folder
+        output_file = os.path.join(
+            self.output_root, self.dataset_type, self.model_type)
 
-      # create output folder
-      output_file = os.path.join(self.output_root, self.dataset_type, self.model_type)
+        if not os.path.exists(output_file):
+            # If it doesn't exist, create it
+            os.makedirs(output_file)
 
-      if not os.path.exists(output_file):
-        # If it doesn't exist, create it
-        os.makedirs(output_file)
+    def resize_image_in_folder(self, output_size):
+        num_broken_image = 0
+        n = 0
+        for i in range(len(self.image_name_list)):
 
-  def resize_image_in_folder(self,output_size):
-      num_broken_image = 0
-      n= 0
-      for i in range(len(self.image_name_list)):
+            image_name = os.path.join(
+                self.root_dir, self.dataset_type, self.model_type, self.image_name_list[i])
 
-        image_name = os.path.join(self.root_dir, self.dataset_type, self.model_type,self.image_name_list[i])
+            # handle broken images
+            if os.path.exists(image_name) and os.path.getsize(image_name) > 0 and (
+                ('png') in image_name or
+                ('PNG') in image_name or
+                ('jpg') in image_name or
+                    ('JPEG') in image_name):
+                image = read_image(image_name)
 
-        # handle broken images
-        if os.path.exists(image_name) and os.path.getsize(image_name) > 0 and (
-            ('png') in image_name or
-          ('PNG') in image_name or
-          ('jpg') in image_name or
-          ('JPEG') in image_name ):
-          image = read_image(image_name)
+                # handle images without 3 layers
+                if image.shape[0] == 1:
+                    image = torch.cat((image, image, image), 0)
 
-                  # handle images without 3 layers
-          if image.shape[0] == 1:
-              image = torch.cat((image,image,image),0)
+                if image.shape[0] == 4:
+                    image = image[:3]
 
-          if image.shape[0] == 4:
-              image = image[:3]
+                # resize images
+                image = transforms.Resize(
+                    [output_size, output_size], antialias=True)(image)
 
-          # resize images
-          image = transforms.Resize([output_size,output_size],antialias=True)(image)
+                # save as a tensor
+                output_file = os.path.join(
+                    self.output_root, self.dataset_type, self.model_type, self.image_name_list[i].split('.')[0]+'.pt')
+                torch.save(image, output_file)
 
-          # save as a tensor
-          output_file = os.path.join(self.output_root, self.dataset_type, self.model_type,self.image_name_list[i].split('.')[0]+'.pt')
-          torch.save(image, output_file)
+                n = n+1
 
-          n=n+1
+            else:
+                image = torch.zeros((3, output_size, output_size))
+                num_broken_image = num_broken_image+1
+                print('Broken Images: ', image_name)
 
-        else:
-          image = torch.zeros((3,output_size,output_size))
-          num_broken_image = num_broken_image+1
-          print('Broken Images: ',image_name)
+                if (('png') in image_name and ('PNG') in image_name or ('jpg') in image_name or ("JPEG ") in image_name) == False:
+                    print('Reason of Broken Images: Type')
+                elif os.path.exists(image_name) == False:
+                    print('Reason of Broken Images: Empty File')
+                elif os.path.getsize(image_name) > 0 == False:
+                    print('Reason of Broken Images: Empty File')
 
-          if (('png') in image_name and ('PNG') in image_name or ('jpg') in image_name or ("JPEG ") in image_name )==False:
-            print('Reason of Broken Images: Type')
-          elif os.path.exists(image_name)== False:
-            print('Reason of Broken Images: Empty File')
-          elif os.path.getsize(image_name) > 0 == False:
-            print('Reason of Broken Images: Empty File')
-
-
-      print('Resized ',n,'images')
-      print(num_broken_image,'images are broken')
+        print('Resized ', n, 'images')
+        print(num_broken_image, 'images are broken')
