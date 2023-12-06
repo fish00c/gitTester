@@ -137,14 +137,18 @@ class Rescale(object):
 
 
 class HighPassConvLayer(nn.Module):
-    def __init__(self, kernel_size=3, channels=3):
+    def __init__(self, kernel_size=5, channels=3):
         super(HighPassConvLayer, self).__init__()
-        # Define a softened 3x3 high-pass filter kernel
-        kernel = torch.tensor([[-0.5, -0.5, -0.5],
-                               [-0.5,  4.0, -0.5],
-                               [-0.5, -0.5, -0.5]])
+        # Define a softened 5x5 high-pass filter kernel
+        kernel = torch.tensor([
+            [-0.25, -0.25, -0.25, -0.25, -0.25],
+            [-0.25, -0.25, -0.25, -0.25, -0.25],
+            [-0.25, -0.25,  3.0, -0.25, -0.25],
+            [-0.25, -0.25, -0.25, -0.25, -0.25],
+            [-0.25, -0.25, -0.25, -0.25, -0.25]
+        ])
 
-        # Normalize the kernel so the sum of elements is 0
+        # Ensure the kernel sums to 0
         kernel -= kernel.mean()
 
         # Repeat the kernel for each input channel
@@ -152,15 +156,14 @@ class HighPassConvLayer(nn.Module):
 
         # Create a convolutional layer with the high-pass filter, without gradient
         self.conv = nn.Conv2d(
-            channels, channels, kernel_size=kernel_size, groups=channels, padding=1, bias=False)
+            channels, channels, kernel_size=kernel_size, groups=channels, padding=2, bias=False)
         self.conv.weight = nn.Parameter(kernel, requires_grad=False)
 
     def forward(self, x):
         # Apply the high-pass filter
         filtered_x = self.conv(x)
 
-        # Optionally, normalize or scale the output here
-        # For example, scale to 0-1 range if using float tensors
+        # Normalize the output to the 0-1 range
         filtered_x = (filtered_x - filtered_x.min()) / \
             (filtered_x.max() - filtered_x.min())
 
