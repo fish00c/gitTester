@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import torchvision.transforms as T
 from PIL import Image
-
+from torch.fft import fft2, fftshift
 
 def random_image(output_path='test.png'):
     # define a torch tensor
@@ -63,7 +63,7 @@ def show_image_from_dataloader(image_dataloader):
 class GenImageDataset(Dataset):
     """GenImage dataset."""
 
-    def __init__(self, root_dir, dataset_type, model_type, transform=None, input_type='Tensor'):
+    def __init__(self, root_dir, dataset_type, model_type, transform=None, fft=False, input_type='Tensor'):
         """
         Args:
             root_dir (string): Directory with all the images.
@@ -79,7 +79,8 @@ class GenImageDataset(Dataset):
         self.model_type = model_type
         self.transform = transform
         self.input_type = input_type
-
+        self.fft = fft
+        
         self.image_names = os.listdir(os.path.join(
             self.root_dir, self.dataset_type, self.model_type))
 
@@ -112,6 +113,15 @@ class GenImageDataset(Dataset):
 
         model_type_num = 1 if self.model_type == 'ai' else 0
 
+        #Apply FFT
+        if self.fft:
+            transformGray = transforms.Grayscale()
+            gray_tensor = transformGray(image)
+            fft_result = fft2(gray_tensor)
+            fft_shift = fftshift(fft_result)
+            fft_PSD = torch.log(abs(fft_shift) + 1)
+            image = torch.cat((image, fft_PSD), dim=0)
+            
         sample = {'image': image, 'model_type': model_type_num,
                   'dataset_type': self.dataset_type, 'image_name': self.image_names[idx]}
 
